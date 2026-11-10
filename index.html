@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Relay Rush — a signal strategy game</title>
+<style>
+:root{color-scheme:dark;--bg:#10141b;--panel:#181f29;--line:#334252;--ink:#edf4fd;--muted:#abbacc;--signal:#baff69;--red:#ffad99;--c0:#baff69;--c1:#ffae91;--c2:#8bd8ff;--c3:#e8a8ff}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 system-ui,sans-serif}
+main{width:min(1050px,100% - 32px);margin:34px auto 64px}header{display:flex;align-items:end;justify-content:space-between;gap:12px;border-bottom:1px solid var(--line);padding-bottom:20px;margin-bottom:22px}
+h1{font-size:clamp(43px,8vw,92px);line-height:.86;letter-spacing:-.085em;margin:0;font-weight:900}h1 span{color:var(--signal)}h2{font-size:22px;margin:0}p{margin:0}.over{font:700 12px/1.2 ui-monospace,monospace;letter-spacing:.14em;color:var(--signal);margin-bottom:11px}.muted{color:var(--muted)}.intro{max-width:280px}
+section{background:var(--panel);border:1px solid var(--line);padding:16px;border-radius:12px}label{display:grid;gap:4px;font-weight:600}
+button,input,select{font:inherit;border:1px solid var(--line);border-radius:7px;min-height:42px;padding:8px 12px;background:var(--bg);color:var(--ink)}
+button{font-weight:700;cursor:pointer}button:hover:not(:disabled){border-color:var(--signal)}button:disabled{cursor:default;opacity:.54}.primary{background:var(--signal);color:#10141b;border-color:var(--signal)}
+.row{display:flex;align-items:end;gap:8px;flex-wrap:wrap}.row>*{min-width:0}.row input{max-width:100%}.lobby{display:grid;gap:12px}.lobby form{border-top:1px solid var(--line);padding-top:12px}
+#status{margin:12px 0;color:var(--red);min-height:24px}.play{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:12px;align-items:start}.stack{display:grid;gap:12px}
+.board{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:5px;margin:12px 0}.cell{position:relative;aspect-ratio:1;display:grid;place-items:center;padding:0;border-radius:6px;background:#202936;min-height:0;isolation:isolate}.cell:disabled{opacity:1}.cell.relay{background:#2b2c35}.cell[data-owner]{background:color-mix(in srgb,var(--team) 22%,#1a232e);border-color:var(--team)}.cell[data-legal]{border:1px dashed var(--signal);box-shadow:inset 0 0 15px #baff6929}.cell[data-selected]{outline:2px solid var(--signal);outline-offset:1px}.coord{position:absolute;top:3px;left:5px;font:700 10px/1.3 ui-monospace,monospace;color:#c6cfda}.relayMark{color:var(--team,#e9d47b);font-size:clamp(16px,4vw,33px)}.unit{position:absolute;right:4px;bottom:4px;color:#10141b;background:var(--unit);font:800 11px/1.4 ui-monospace,monospace;border-radius:4px;padding:1px 4px}.meta{display:flex;justify-content:space-between;align-items:start;gap:8px}.clock{font:800 23px/1.2 ui-monospace,monospace;color:var(--signal)}.people{display:grid;gap:7px;margin-top:10px}.player{display:grid;grid-template-columns:1fr auto;gap:3px 10px;padding:7px 10px;border-left:3px solid var(--team);background:#111820;border-radius:3px}.player[aria-current="true"]{outline:1px solid var(--team)}.score{color:var(--team);font-weight:800}.energy{font-size:12px;color:var(--muted)}.log{padding-left:22px;max-height:240px;overflow:auto;margin-bottom:0}.log li{margin-bottom:5px}.rules{margin-top:12px}summary{cursor:pointer;font-weight:800}.rules p{margin-top:9px}[hidden]{display:none!important}
+@media(max-width:700px){main{margin-top:24px}header{display:block}.intro{margin-top:12px}.play{grid-template-columns:1fr}section{padding:12px}button,input,select{min-height:44px}}
+</style>
+<main>
+<header><div><p class="over">Field game / 01</p><h1>RELAY<span> RUSH</span></h1></div><p class="intro muted">A five-round signal fight for 2–4 human or machine operators.</p></header>
+<section id="lobby" class="lobby">
+  <h2>Get on the air</h2>
+  <form id="create" class="row"><label>Call sign<input name="name" maxlength="22" placeholder="Operator 1"></label><label>Seats<select name="seats"><option>2</option><option>3</option><option>4</option></select></label><button class="primary">Create match</button></form>
+  <form id="join" class="row"><label>Match code<input name="code" maxlength="6" pattern="[A-Fa-f0-9]{6}" required placeholder="A1B2C3"></label><label>Call sign<input name="name" maxlength="22" placeholder="Operator"></label><button>Join match</button></form>
+</section>
+<p id="status" role="status"></p>
+<div id="game" class="play" hidden>
+ <section>
+  <div class="meta"><div><p class="over" id="phase"></p><h2 id="turn"></h2></div><div id="clock" class="clock"></div></div>
+  <div class="board" id="board" aria-label="Five by five game board"></div>
+  <p id="hint" class="muted"></p>
+  <div id="actions" class="row"></div>
+ </section>
+ <div class="stack">
+  <section><div class="meta"><h2>Operators</h2><strong id="code"></strong></div><div id="people" class="people"></div></section>
+  <section><h2>Signal log</h2><ol class="log" id="log"></ol></section>
+ </div>
+</div>
+<section class="rules"><details><summary>How to play</summary><p>Move one or two grid steps for one energy each, tune a relay from the same or an adjacent tile, or charge for three energy (max five). A neutral relay costs one energy to tune. Stealing a rival’s costs two. At the end of each round, each relay you hold scores two points, or three at the center. Highest signal after five rounds wins. A turn expires after 20 seconds and charges automatically. The host fills any empty seats with drones when launching.</p></details></section>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const cellName = n => "ABCDE"[n%5] + (Math.floor(n/5)+1);
+const team = seat => "var(--c"+seat+")";
+let seat = null, key = null, match = null, pending = false, selected = null;
+let poll;
+const cells = Array.from({length:25},(_,tile)=>{
+  const button = document.createElement("button");
+  button.type="button";button.className="cell";button.disabled=true;
+  button.onclick=()=>{selected=tile;render();};
+  $("board").append(button);
+  return button;
+});
+function el(tag, value, className){
+  const node=document.createElement(tag);
+  if(value)node.textContent=value;
+  if(className)node.className=className;
+  return node;
+}
+function action(label, fn, primary=false){
+  const node=el("button",label,primary?"primary":"");
+  node.type="button";node.disabled=pending;node.onclick=fn;$("actions").append(node);
+}
+async function api(path,body){
+  const result=await fetch(path,body?{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}:{cache:"no-store"});
+  const data=await result.json();
+  if(!result.ok)throw Error(data.error);
+  return data;
+}
+const url=()=>"/api/matches/"+match.code;
+async function enter(path, data){
+  if(pending)return;
+  pending=true;
+  $("status").textContent="";
+  try {
+    const result=await api(path,data);
+    ({seat,key,match}=result);
+    $("lobby").hidden=true;
+    $("game").hidden=false;
+    poll=setInterval(refresh,1000);
+  } catch(error){$("status").textContent=error.message;}
+  finally{pending=false;if(match)render();}
+}
+$("create").onsubmit=e=>{e.preventDefault();const f=new FormData(e.currentTarget);enter("/api/matches",{name:f.get("name"),seats:Number(f.get("seats"))});};
+$("join").onsubmit=e=>{e.preventDefault();const f=new FormData(e.currentTarget);enter("/api/matches/"+encodeURIComponent(f.get("code").trim())+"/join",{name:f.get("name")});};
+async function refresh(){
+  if(pending||!match||match.phase==="finished")return;
+  const current=match;
+  try{
+    const fresh=await api(url());
+    if(!pending&&match===current){if(fresh.revision!==current.revision)selected=null;match=fresh;render();}
+  }catch(error){$("status").textContent=error.message;}
+}
+async function submit(command,move={}){
+  if(pending)return;
+  pending=true;
+  $("status").textContent="";
+  const revision=match.revision;
+  render();
+  try{match=await api(url()+"/"+command,{key,revision,...move});selected=null;}
+  catch(error){$("status").textContent=error.message;}
+  finally{pending=false;render();}
+}
+function clock(){
+  $("clock").textContent=match?.phase==="playing"?Math.max(0,Math.ceil((match.deadline-Date.now())/1000))+"s":"";
+}
+setInterval(clock,250);
+function render(){
+  const own=match.phase==="playing"&&match.turn===seat;
+  const options=own?match.legal:[];
+  const phase=match.phase;
+  $("phase").textContent=phase==="lobby"?"Waiting room":phase==="finished"?"Transmission complete":"Round "+match.round+" / "+match.rounds;
+  $("turn").textContent=phase==="lobby"?"Share "+match.code:phase==="finished"
+    ?(match.winners.length===1?match.players[match.winners[0]].name+" wins":"Tie · "+match.winners.map(s=>match.players[s].name).join(" / "))
+    :own?"Your move":match.players[match.turn].name+" is on air";
+  $("code").textContent=match.code;clock();
+  $("hint").textContent=phase==="lobby"?"Send the code to a friend or agent. Empty seats become drones."
+    :phase==="finished"?"The match log below records every move.":own?"Pick a marked square, or recharge.":"Waiting for the current operator.";
+  for (const [tile,cell] of cells.entries()){
+    const relay=Object.hasOwn(match.relays,tile),owner=match.relays[tile];
+    const player=match.players.find(p=>p.position===tile);
+    cell.replaceChildren(el("span",cellName(tile),"coord"));
+    if(relay)cell.append(el("span",tile===12?"✶":"◇","relayMark"));
+    if(player){const mark=el("span",String(player.seat+1),"unit");mark.style.setProperty("--unit",team(player.seat));cell.append(mark);}
+    cell.classList.toggle("relay",relay);
+    const owned=relay&&owner!==null;
+    cell.toggleAttribute("data-owner",owned);
+    if(owned)cell.style.setProperty("--team",team(owner));
+    else cell.style.removeProperty("--team");
+    const available=options.some(m=>m.tile===tile);
+    cell.toggleAttribute("data-legal",available);
+    cell.toggleAttribute("data-selected",selected===tile&&available);
+    cell.disabled=!available||pending;
+    cell.setAttribute("aria-label",cellName(tile)+(relay?", relay":"")+(owned?", controlled by "+match.players[owner].name:"")+(player?", "+player.name:""));
+  }
+  $("actions").replaceChildren();
+  if(phase==="lobby"&&seat===0)action("Launch match",()=>submit("start"),true);
+  if(own){
+    for(const move of options.filter(m=>m.tile===selected&&m.tile!==undefined)){
+      action((move.kind==="claim"?"Tune ":"Move to ")+cellName(move.tile)+" · "+move.cost,()=>submit("move",move),true);
+    }
+    action("Charge +3",()=>submit("move",{kind:"charge"}));
+  }
+  if(phase==="finished"){clearInterval(poll);action("New match",()=>location.reload(),true);}
+  $("people").replaceChildren(...match.players.map(p=>{
+    const row=el("div",null,"player");
+    row.style.setProperty("--team",team(p.seat));
+    row.setAttribute("aria-current",String(match.turn===p.seat&&phase==="playing"));
+    row.append(el("strong",(p.seat+1)+" · "+p.name+(p.bot?" · bot":"")),el("span",p.score+" pts","score"),el("span","Energy "+p.energy+"/5","energy"));
+    return row;
+  }));
+  $("log").replaceChildren(...match.log.map(e=>el("li","R"+e.round+" · "+e.text)));
+}
+</script>
